@@ -1,0 +1,523 @@
+{
+  "_meta": {
+    "version": "2.0.0",
+    "description": "CSV header -> BCI field mapping. Uses header names (not column indices) so it works across different Gravity Forms exports.",
+    "notes": [
+      "csv_col: header name string. For duplicate headers, append #N (e.g., 'Header#2' for 2nd occurrence)",
+      "transform: optional transformation to apply (see transforms.py)",
+      "default: value to use if CSV field is empty",
+      "multi: true if the field can have multiple pipe-delimited entries",
+      "comment: human-readable note about the mapping"
+    ]
+  },
+
+  "file_header": {
+    "_comment": "The [File] section is mostly static metadata, generated at export time",
+    "defaults": {
+      "Version": "2.0",
+      "BExportVer": "5/18/2018 @ 5:14 PM #3018272 ~C:\\inetpub\\wwwroot\\Prod\\MyCaseInfo\\BExport\\",
+      "MyCaseInfo Export": "1"
+    },
+    "export_id_col": "Entry Id"
+  },
+
+  "case": {
+    "_comment": "The [Case] section - case-level metadata",
+    "defaults": {
+      "NatureOfDebt": "1",
+      "TypeOfDebtor": "1",
+      "Chapter": "1",
+      "Status": "1"
+    }
+  },
+
+  "debtor": {
+    "_comment": "The [Debtor] section - primary filer personal info",
+    "fields": {
+      "FirstName":     { "csv_col": "Your Name (First)" },
+      "MiddleName":    { "csv_col": "Your Name (Middle)" },
+      "LastName":      { "csv_col": "Your Name (Last)" },
+      "Generation":    { "csv_col": "Your Name (Suffix)", "transform": "suffix_to_generation" },
+      "Addr":          { "csv_col": "Your Current Address (Street Address)" },
+      "City":          { "csv_col": "Your Current Address (City)" },
+      "State":         { "csv_col": "Your Current Address (State / Province)", "transform": "state_to_abbrev" },
+      "Zip":           { "csv_col": "Your Current Address (ZIP / Postal Code)", "transform": "format_zip_debtor" },
+      "MailAddr":      { "default": "" },
+      "MailCity":      { "default": "" },
+      "MailSt":        { "default": "" },
+      "MailZip":       { "default": "" },
+      "HomePhone":     { "csv_col": "Phone Number" },
+      "WorkPhone":     { "default": "" },
+      "CellPhone":     { "default": "" },
+      "County":        { "default": "" },
+      "EMail":         { "csv_col": "Your Email Address" },
+      "ContactNotes":  { "default": "Email" },
+      "SocSecNo":      { "default": "" }
+    }
+  },
+
+  "joint": {
+    "_comment": "The [Joint] section - spouse/joint filer info. Empty for single filers.",
+    "fields": {
+      "FirstName":  { "csv_col": "Your Spouse's Name (First)" },
+      "MiddleName": { "csv_col": "Your Spouse's Name (Middle)" },
+      "LastName":   { "csv_col": "Your Spouse's Name (Last)" },
+      "Generation": { "csv_col": "Your Spouse's Name (Suffix)", "transform": "suffix_to_generation" }
+    },
+    "empty_fields": [
+      "Addr", "City", "State", "Zip",
+      "MailAddr", "MailCity", "MailSt", "MailZip",
+      "HomePhone", "WorkPhone", "CellPhone", "EMail", "County"
+    ]
+  },
+
+  "other_names": {
+    "_comment": "[Other Names] section. Pipe-delimited names like 'Johnny|Doe-Joe'",
+    "csv_col": "Your Other Name(s) 1",
+    "name_type_default": "aka"
+  },
+
+  "dependants": {
+    "_comment": "[Dependant] section. Entries like '12|Son'",
+    "csv_cols": ["Household Members 1", "Household Members 2", "Household Members 3", "Household Members 4"],
+    "default_lives_with": "1",
+    "default_is_dependent": "1"
+  },
+
+  "prior_cases": {
+    "_comment": "[Prior Cases] section",
+    "date_col": "When was the prior bankrutpcy case filed?",
+    "state_col": "In what state was the prior bankrutpcy case filed?",
+    "spouse_date_col": "When was the prior bankruptcy case filed?",
+    "spouse_state_col": "In what state was the prior bankruptcy case filed?"
+  },
+
+  "schedule_ab": {
+    "_comment": "[SchAB] section - Assets (Schedule A/B). Complex section with many sub-types.",
+
+    "real_estate": {
+      "_comment": "Type 1 = Real property",
+      "bci_type": 1,
+      "debtor_state_col": "Your Current Address (State / Province)",
+      "properties": [
+        {
+          "type_col": "What type of property is it?",
+          "addr_col": "Where is the property located? (Street Address)",
+          "addr2_col": "Where is the property located? (Address Line 2)",
+          "city_col": "Where is the property located? (City)",
+          "state_col": "Where is the property located? (State / Province)",
+          "zip_col": "Where is the property located? (ZIP / Postal Code)",
+          "description_col": "Property Ownership and Description",
+          "value_from_notes": true,
+          "_comment": "First other property"
+        },
+        {
+          "type_col": "What type of property is it?#2",
+          "addr_col": "Where is the property located? (Street Address)#2",
+          "city_col": "Where is the property located? (City)#2",
+          "state_col": "Where is the property located? (State / Province)#2",
+          "zip_col": "Where is the property located? (ZIP / Postal Code)#2",
+          "description_col": "Property Ownership and Description#2",
+          "_comment": "Second other property (if any)"
+        }
+      ]
+    },
+
+    "vehicles": {
+      "_comment": "Type 3 = Cars/trucks. CSV has 'Year|Make|Model|Mileage'",
+      "bci_type": 3,
+      "csv_cols": ["Vehicle Information 1", "Vehicle Information 2", "Vehicle Information 3", "Vehicle Information 4", "Vehicle Information 5"],
+      "default_value": "1.00"
+    },
+
+    "recreational_vehicles": {
+      "_comment": "Type 4 = Boats/RVs/ATVs. CSV format: Year|Make|Model|SubType(e.g. Boat)",
+      "bci_type": 4,
+      "csv_cols": ["Recreational Vehicle Information 1", "Recreational Vehicle Information 2"],
+      "default_value": "1.00"
+    },
+
+    "household_goods": {
+      "_comment": "Type 6 = Household goods. Checkboxes for debtor, additional notes",
+      "bci_type": 6,
+      "debtor_checkbox_cols": [
+        "Washer", "Dryer",
+        "Bedroom Set (Master)", "Bedroom Set (2nd Bedroom)", "Bedroom Set (3rd Bedroom)", "Bedroom Set (4th Bedroom)",
+        "Living Room Set", "Kitchen/Dining Table", "Kitchen/Dining Chairs",
+        "Kitchenware", "Linens", "Wall Art", "Desk or Floor Lamps", "Rugs", "Coffee Tables",
+        "Clothing", "Costume Jewelry (inexpensive)", "Fine Jewelry (expensive)"
+      ],
+      "additional_notes_col": "Additional Household Goods & Furnishings",
+      "default_value": "0.00"
+    },
+
+    "electronics": {
+      "_comment": "Type 7 = Electronics. Checkboxes and additional notes",
+      "bci_type": 7,
+      "debtor_checkbox_cols": [
+        "Television(s)", "Receiver/Radio/Stereo", "Speakers", "DVD Player",
+        "Desktop Computer", "Laptop Computer", "Printer", "Scanner",
+        "Cell Phone", "Camera", "Video Game Console"
+      ],
+      "additional_notes_col": "Additional Electronics",
+      "default_value": "0.00"
+    },
+
+    "collectibles": {
+      "_comment": "Type 8 = Collectibles",
+      "bci_type": 8,
+      "csv_col": "Your Collectibles",
+      "default_value": "0.00"
+    },
+
+    "sports_hobby": {
+      "_comment": "Type 9 = Sports/Hobby equipment",
+      "bci_type": 9,
+      "csv_col": "Your Sporting or Hobby Equipment",
+      "default_value": "0.00"
+    },
+
+    "firearms": {
+      "_comment": "Type 10 = Firearms",
+      "bci_type": 10,
+      "csv_col": "Your Firearms",
+      "default_value": "0.00"
+    },
+
+    "clothes": {
+      "_comment": "Type 11 = Clothes. Always included with default value.",
+      "bci_type": 11,
+      "default_value": "1.00"
+    },
+
+    "bank_accounts": {
+      "_comment": "Type 17 = Bank accounts. CSV has 'BankName|Type|AcctLast4'",
+      "bci_type": 17,
+      "csv_cols": [
+        "Bank Account Info 1", "Bank Account Info 2", "Bank Account Info 3", "Bank Account Info 4",
+        "Bank Account Info 5", "Bank Account Info 6", "Bank Account Info 7", "Bank Account Info 8",
+        "Bank Account Info 9", "Bank Account Info 10", "Bank Account Info 11", "Bank Account Info 12"
+      ],
+      "default_value": "1.00"
+    },
+
+    "investment_accounts": {
+      "_comment": "Type 18 = Financial/Investment accounts. CSV has 'Name|AcctNumber'",
+      "bci_type": 18,
+      "csv_cols": ["Investment Account Info 1", "Investment Account Info 2", "Investment Account Info 3", "Investment Account Info 4"],
+      "default_value": "1.00"
+    },
+
+    "retirement_accounts": {
+      "_comment": "Type 21 = Retirement accounts (IRA, 401k, etc). CSV has 'Name|AcctNumber'",
+      "bci_type": 21,
+      "csv_cols": ["Retirement Account Info 1", "Retirement Account Info 2", "Retirement Account Info 3", "Retirement Account Info 4", "Retirement Account Info 5"],
+      "retirement_type_map": {
+        "IRA": "IRA",
+        "401(k)": "401k",
+        "401k": "401k",
+        "Keogh": "Keogh",
+        "403(b)": "403b",
+        "Pension": "Pension"
+      },
+      "default_value": "1.00",
+      "interest": "Retirement"
+    },
+
+    "education_ira": {
+      "_comment": "Type 24 = Education IRA. Parsed from retirement account info cols.",
+      "bci_type": 24,
+      "default_value": "1.00"
+    },
+
+    "annuities": {
+      "_comment": "Type 23 = Annuities. Parsed from retirement account info cols.",
+      "bci_type": 23,
+      "default_value": "1.00"
+    },
+
+    "life_estates": {
+      "_comment": "Type 25 = Life estates / future interests",
+      "bci_type": 25,
+      "checkbox_col": "You are the beneficiary of a Will",
+      "default_value": "1.00"
+    },
+
+    "intellectual_property": {
+      "_comment": "Type 26 = Patents, Copyrights, Trademarks, Other IP",
+      "bci_type": 26,
+      "checkbox_cols": {
+        "patent": "You own a Patent",
+        "copyright": "You own a Copyright",
+        "trademark": "You own a Trademark",
+        "other_ip": "You own other Intellectual Property"
+      },
+      "default_value": "1.00"
+    },
+
+    "general_intangibles": {
+      "_comment": "Type 27 = Franchise, License",
+      "bci_type": 27,
+      "checkbox_cols": {
+        "franchise": "You own a Franchise",
+        "license": "You own a valuable License that can be sold or transferred"
+      },
+      "default_value": "1.00"
+    },
+
+    "tax_refund": {
+      "_comment": "Type 28 = Expected tax refund",
+      "bci_type": 28,
+      "amount_col": "Pending IRS Tax Refund",
+      "default_description": "Federal: Next Expected Tax Refund",
+      "addl_desc1": "Federal"
+    },
+
+    "child_support_owed": {
+      "_comment": "Type 29 = Alimony/child support owed TO debtor",
+      "bci_type": 29,
+      "checkbox_col": "You are owed past due or lump sum Alimony or Child Support",
+      "default_value": "1.00",
+      "default_addl_desc1": "Child Support"
+    },
+
+    "owed_other": {
+      "_comment": "Type 30 = Other amounts owed to debtor. Uses 3rd occurrence of 'Anything Else?' (the general catch-all, not the personal property one)",
+      "bci_type": 30,
+      "notes_col": "Anything Else?#3",
+      "default_value": "1.00"
+    },
+
+    "insurance": {
+      "_comment": "Type 31 = Life insurance with cash value",
+      "bci_type": 31,
+      "checkbox_col": "You own a Whole Life Insurance Policy which lists you as both the \"insured\" and the \"beneficiary\"",
+      "default_value": "1.00"
+    },
+
+    "claims": {
+      "_comment": "Type 33 = Pending claims / lawsuits expecting payment",
+      "bci_type": 33,
+      "csv_col_expecting_payment": "Are you expecting to RECEIVE any money or payment from any lawsuits or claims?",
+      "default_value": "1.00"
+    },
+
+    "other_personal_property": {
+      "_comment": "Type 53 = Catch-all other personal property. Uses 3rd occurrence of 'Anything Else?' (the general catch-all)",
+      "bci_type": 53,
+      "notes_col": "Anything Else?#3",
+      "debtor_state_col": "Your Current Address (State / Province)",
+      "default_value": "1.00"
+    }
+  },
+
+  "schedule_def": {
+    "_comment": "[SchDEF] section - Creditors (Schedules D, E, F)",
+    "non_consumer_debt": {
+      "schedule": "F",
+      "csv_cols": [
+        "Non-Consumer Debt Info 1", "Non-Consumer Debt Info 2", "Non-Consumer Debt Info 3",
+        "Non-Consumer Debt Info 4", "Non-Consumer Debt Info 5", "Non-Consumer Debt Info 6",
+        "Non-Consumer Debt Info 7", "Non-Consumer Debt Info 8", "Non-Consumer Debt Info 9",
+        "Non-Consumer Debt Info 10", "Non-Consumer Debt Info 11", "Non-Consumer Debt Info 12"
+      ],
+      "creditor_type_default": "Medical",
+      "_comment": "CSV format: Name|Amount|Address|City|State|Zip"
+    },
+    "tax_debt": {
+      "schedule": "E",
+      "csv_cols": ["Tax Debt 1", "Tax Debt 2"],
+      "_comment": "CSV format: Entity|TaxYears|Amount"
+    },
+    "child_support_debt": {
+      "schedule": "E",
+      "csv_col_recipient": "Name & Address of Support Recipient 1",
+      "csv_col_amount": "How much do you owe in back child support or alimony?",
+      "_comment": "CSV format for recipient: Name|Address|City|State|Zip"
+    }
+  },
+
+  "sfa": {
+    "_comment": "[SFA] = Statement of Financial Affairs. Line-type based format.",
+    "previous_address": {
+      "line_type": 2,
+      "addr_col": "Previous Address (Street Address)",
+      "addr2_col": "Previous Address (Address Line 2)",
+      "city_col": "Previous Address (City)",
+      "state_col": "Previous Address (State / Province)",
+      "zip_col": "Previous Address (ZIP / Postal Code)",
+      "dates_col": "When did you live at this previous address?"
+    },
+    "income_ytd": {
+      "line_type": 4,
+      "amount_col_from_notes": true,
+      "_comment": "How much have you made so far this year - from supporting notes"
+    },
+    "other_income_sources": {
+      "line_type": 5,
+      "_comment": "Generated from income source selections"
+    },
+    "insider_loans": {
+      "line_type": 7,
+      "csv_cols": ["Loan Repayment Details 1", "Loan Repayment Details 2"],
+      "_comment": "CSV format: Name|Date|Amount|Description"
+    },
+    "lawsuits": {
+      "line_type": 9,
+      "_comment": "Generated from court case repeater fields. The case type is a DATA VALUE in a repeating column, not a header name. Each lawsuit slot is a 6-column repeating block.",
+      "case_type_col": "What type of case or claim is it?",
+      "location_col": "Where is the lawsuit or claim taking place? 1",
+      "status_col": "What's the status of the case?",
+      "has_number_col": "Do you have the case number handy?",
+      "case_number_col": "What's the case number?",
+      "more_col": "Any additional court cases or legal matters?"
+    },
+    "seizures": {
+      "line_type": 10,
+      "repossession_cols": ["Repossession 1", "Repossession 2"],
+      "foreclosure_cols": ["Foreclosure 1"],
+      "garnishment_cols": ["Garnishment 1"],
+      "levy_cols": ["Attachment, Seizure, or Levy 1"],
+      "_comment": "CSV format varies: Name|Date|Description"
+    },
+    "gifts": {
+      "line_type": 13,
+      "csv_cols": ["Please describe the gift below. 1", "Please describe the gift below. 2"],
+      "_comment": "CSV format: Name|Date|Amount|Description"
+    },
+    "losses": {
+      "line_type": 15,
+      "csv_cols": ["Please describe the losses below. 1", "Please describe the losses below. 2"],
+      "_comment": "CSV format: Description|Date|Amount"
+    },
+    "transfers": {
+      "line_type": 18,
+      "_comment": "Transfer repeater fields",
+      "recipient_col": "Recipient Name",
+      "relationship_col": "Relationship of Recipient to you",
+      "what_col": "What was transferred?",
+      "value_col": "Approximate Value of Transfer",
+      "received_col": "What did you receive in exchange?",
+      "date_col": "Approximate Date of Transfer"
+    },
+    "closed_accounts": {
+      "line_type": 20,
+      "csv_cols": [
+        "Please list each transferred or closed account below. 1",
+        "Please list each transferred or closed account below. 2",
+        "Please list each transferred or closed account below. 3"
+      ],
+      "_comment": "CSV format: BankName|Type|Date|Balance"
+    },
+    "safe_deposit": {
+      "line_type": 21,
+      "csv_cols": [
+        "Please describe the contents of the safe deposit box below. 1",
+        "Please describe the contents of the safe deposit box below. 2"
+      ],
+      "_comment": "CSV format: BankName|Contents"
+    },
+    "storage_units": {
+      "line_type": 22,
+      "csv_cols": [
+        "Please provide the location and description of the contents. 1",
+        "Please provide the location and description of the contents. 2"
+      ],
+      "_comment": "CSV format: Location|Contents"
+    },
+    "financial_statements": {
+      "line_type": 28,
+      "default_name": "PLACEHOLDER FINANCIAL STATEMENTS NAME",
+      "_comment": "Always use default from supporting notes"
+    }
+  },
+
+  "income": {
+    "_comment": "[Income] section - employment and income details",
+    "debtor": {
+      "employer_col": "Your Current Employer",
+      "occupation_col": "Your Current Occupation",
+      "how_long_col": "Approximately how long have you been employed here? 1",
+      "wages_from_notes": true,
+      "_comment": "Wages come from supporting notes",
+      "employer_addr_from_notes": true
+    },
+    "other_income": {
+      "rental_col": "Your average monthly income from Rental Property",
+      "alimony_col": "Your average monthly income from Alimony or Child Support",
+      "social_security_col": "Your average monthly income from Social Security",
+      "pension_col": "Your average monthly income from Retirement or Pension",
+      "va_benefits_col": "Your average monthly income from VA Benefits",
+      "unemployment_col": "Your average monthly income from Unemployment Compensation",
+      "other1_col": "Average monthly income from other sources 1",
+      "other2_col": "Average monthly income from other sources 2"
+    }
+  },
+
+  "expenses": {
+    "_comment": "[Expense] section - monthly expense fields",
+    "fields": {
+      "Rent":              { "csv_col": "Rent" },
+      "Electricity":       { "csv_col": "Electricity/Power" },
+      "Water":             { "csv_col": "Water" },
+      "Telephone":         { "csv_col": "Cell Phone#3" },
+      "UtilityDsc1":       { "default": "Cable and/or Internet" },
+      "UtilityAmt1":       { "csv_col": "Cable and/or Internet" },
+      "Food":              { "csv_col": "Food and Housekeeping Supplies" },
+      "Childcare":         { "csv_col": "Childcare and Children's Education Costs" },
+      "Clothing":          { "csv_col": "Clothing, Laundry, and Dry Cleaning" },
+      "PersonalCare":      { "csv_col": "Personal Care Products and Services" },
+      "Medical":           { "csv_col": "Medical and Dental Expenses" },
+      "Transportation":    { "csv_col": "Transportation" },
+      "Recreation":        { "csv_col": "Entertainment & Leisure" },
+      "Charity":           { "csv_col": "Charitable Contributions and Religious Donations" },
+      "InsuranceAuto":     { "csv_col": "Car Insurance" },
+      "InsuranceHealth":   { "csv_col": "Health Insurance (not deducted from paycheck)" },
+      "InstallmentAuto":   { "csv_col": "Car Payments 1" },
+      "InstallmentAuto2":  { "csv_col": "Car Payments 2" },
+      "Alimony":           { "csv_col": "Child Support or Alimony (not deducted from paycheck)" }
+    },
+    "installment_payments": {
+      "_comment": "Other installment payments with description|amount format",
+      "csv_cols": ["Other Installment Payments 1", "Other Installment Payments 2", "Other Installment Payments 3", "Other Installment Payments 4", "Other Installment Payments 5", "Other Installment Payments 6"]
+    },
+    "other_expenses": {
+      "_comment": "Other expenses with description|amount format",
+      "csv_cols": ["Other Expenses 1", "Other Expenses 2", "Other Expenses 3", "Other Expenses 4", "Other Expenses 5", "Other Expenses 6", "Other Expenses 7", "Other Expenses 8"]
+    },
+    "defaults": {
+      "TaxesIncluded": "0",
+      "InsuranceInc": "0",
+      "IncludesOthers": "0",
+      "ExpChangeYES": "0"
+    }
+  },
+
+  "state_abbreviations": {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC"
+  },
+
+  "suffix_map": {
+    "Junior": "JR",
+    "Jr": "JR",
+    "Jr.": "JR",
+    "Senior": "SR",
+    "Sr": "SR",
+    "Sr.": "SR",
+    "II": "II",
+    "III": "III",
+    "IV": "IV"
+  }
+}
