@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vercel
+.DS_Store
+tmp/
+out/
+*.bci
+*_report.txt
+sample_entry.json
+sample_form_schema.json
