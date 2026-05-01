@@ -169,6 +169,64 @@ def _process_entry(entry: dict, form_schema: dict,
 
 
 # -----------------------------------------------------------------------
+# Webhook entry point
+# -----------------------------------------------------------------------
+
+def process_webhook_entry(entry: dict) -> dict:
+    """Process ONE entry that arrived via the Gravity Forms webhook.
+
+    Same conversion + upload as the cron path, plus a state-file update
+    (only if the entry's id is higher than the current high-water mark —
+    monotonic, never goes backward, even under concurrent webhook calls).
+
+    Returns the per-entry result dict the caller (api/webhook.py) sends
+    back as the HTTP response. On failure, raises — caller responds 500
+    so GF's Webhooks Add-On retries with backoff.
+    """
+    cfg = config.load()
+    gf = GFClient(cfg.gf_base_url, cfg.gf_form_id,
+                  cfg.gf_consumer_key, cfg.gf_consumer_secret)
+    dropbox = DropboxClient(cfg.dropbox_app_key, cfg.dropbox_app_secret,
+                            cfg.dropbox_refresh_token, cfg.dropbox_target_folder)
+
+    form_schema = gf.get_form_schema()
+    mapping, defaults = load_converter_config()
+
+    result = _process_entry(entry, form_schema, mapping, defaults,
+                            dropbox, dry_run=False)
+
+    # Advance state ONLY if this entry's id is higher than what's recorded.
+    # Webhooks can deliver out of order during concurrent submissions; we
+    # never want last_entry_id to move backward.
+    if result["status"] != "failed":
+        try:
+            eid = int(entry.get("id", 0))
+        except (TypeError, ValueError):
+            eid = 0
+        if eid > 0:
+            state = dropbox.read_json(_STATE_FILE)
+            if state is None:
+                state = _initial_state(cfg, gf)
+            if eid > int(state.get("last_entry_id", 0)):
+                state["last_entry_id"] = eid
+                state["last_run_at_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                         time.gmtime())
+                history = state.get("runs", [])
+                history.append({
+                    "at_utc": state["last_run_at_utc"],
+                    "source": "webhook",
+                    "entry_id": eid,
+                    "uploaded": result.get("uploaded", False),
+                    "status": result["status"],
+                })
+                state["runs"] = history[-20:]
+                dropbox.write_json(_STATE_FILE, state)
+                log.info("webhook.state_advanced", to_id=eid)
+
+    return result
+
+
+# -----------------------------------------------------------------------
 # Main run
 # -----------------------------------------------------------------------
 
