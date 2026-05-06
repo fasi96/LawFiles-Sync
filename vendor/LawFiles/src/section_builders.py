@@ -1447,20 +1447,33 @@ def build_income_section(row, mapping, resolver):
         # Preserve the business gross amount for Schedule I "Other Income" parity.
         lines.append(f"dBusiness={format_amount(debtor_biz_income)}")
 
-    if not joint:
-        # Individual: include wages and other income line items
-        oi = cfg["other_income"]
-        pension = _get(row, resolver, oi["pension_col"], "")
-        rental = _get(row, resolver, oi["rental_col"], "")
-        alimony = _get(row, resolver, oi["alimony_col"], "")
-        ss = _get(row, resolver, oi["social_security_col"], "")
-        unemployment = _get(row, resolver, oi["unemployment_col"], "")
+    # Debtor other income (pension, rental, alimony, social security, unemployment)
+    # — applies to both individual and joint filings
+    oi = cfg["other_income"]
+    pension = _get(row, resolver, oi["pension_col"], "")
+    rental = _get(row, resolver, oi["rental_col"], "")
+    alimony = _get(row, resolver, oi["alimony_col"], "")
+    ss = _get(row, resolver, oi["social_security_col"], "")
+    unemployment = _get(row, resolver, oi["unemployment_col"], "")
 
+    if not joint:
         lines.append(f"dPension={format_amount(pension)}")
         lines.append(f"dProperty={format_amount(rental)}")
         lines.append(f"dAlimony={format_amount(alimony)}")
         lines.append(f"dSocSecurity={format_amount(ss)}")
         lines.append(f"dUnemployment={format_amount(unemployment)}")
+    else:
+        # Joint: only emit non-zero debtor other-income lines
+        if pension:
+            lines.append(f"dPension={format_amount(pension)}")
+        if rental:
+            lines.append(f"dProperty={format_amount(rental)}")
+        if alimony:
+            lines.append(f"dAlimony={format_amount(alimony)}")
+        if ss:
+            lines.append(f"dSocSecurity={format_amount(ss)}")
+        if unemployment:
+            lines.append(f"dUnemployment={format_amount(unemployment)}")
 
     lines.append(f"ExpChangeYES=0")
 
@@ -1500,11 +1513,6 @@ def build_income_section(row, mapping, resolver):
             lines.append(f"sEmpZip=")
             lines.append(f"sHowLong={s_years} Years, {s_months} Months")
             lines.append(f"sPayPeriod=5")  # Monthly
-
-            # Spouse rental income (even if W2 employed)
-            spouse_rental = _get(row, resolver, "Your spouse's average monthly income from Rental Property", "")
-            if spouse_rental:
-                lines.append(f"sProperty={format_amount(spouse_rental)}")
         elif spouse_biz:
             # Spouse is self-employed
             spouse_nature = _get(row, resolver, "What's the nature of your spouse's business?")
@@ -1538,11 +1546,6 @@ def build_income_section(row, mapping, resolver):
             lines.append(f"sHowLong={s_years} Years, {s_months} Months")
             lines.append(f"sPayPeriod=5")
 
-            # Spouse rental income (gross income from real property)
-            spouse_rental = _get(row, resolver, "Your spouse's average monthly income from Rental Property", "")
-            if spouse_rental:
-                lines.append(f"sProperty={format_amount(spouse_rental)}")
-
             # Spouse business income (both primary and additional businesses)
             spouse_biz_income = _get(row, resolver, "Average monthly income from operation of your spouse's business")
             spouse_biz2_income = _get(row, resolver, "Average monthly income from operation of this additional business#2")
@@ -1571,6 +1574,24 @@ def build_income_section(row, mapping, resolver):
             lines.append(f"sEmpAddr=||")
             lines.append(f"sPayPeriod=0")
             lines.append(f"sNotEmployed=1")
+
+        # Spouse other income (pension, rental, alimony, social security,
+        # unemployment) — emitted regardless of employment status
+        s_pension = _get(row, resolver, "Your spouse's average monthly income from Retirement or Pension", "")
+        s_rental = _get(row, resolver, "Your spouse's average monthly income from Rental Property", "")
+        s_alimony = _get(row, resolver, "Your spouse's average monthly income from Alimony or Child Support", "")
+        s_ss = _get(row, resolver, "Your spouse's average monthly income from Social Security", "")
+        s_unemployment = _get(row, resolver, "Your spouse's average monthly income from Unemployment Compensation", "")
+        if s_pension:
+            lines.append(f"sPension={format_amount(s_pension)}")
+        if s_rental:
+            lines.append(f"sProperty={format_amount(s_rental)}")
+        if s_alimony:
+            lines.append(f"sAlimony={format_amount(s_alimony)}")
+        if s_ss:
+            lines.append(f"sSocSecurity={format_amount(s_ss)}")
+        if s_unemployment:
+            lines.append(f"sUnemployment={format_amount(s_unemployment)}")
     else:
         # Single filer: spouse not employed
         lines.append(f"sEmpAddr=||")
@@ -1779,8 +1800,29 @@ def build_mtinc_section(row, mapping, resolver):
             mtiid += 1
             lines.append(f"2,2,{thru_date},2,1,{biz2_q},0,0,0,0,0,0,0,0,0,0,0,0,{format_amount(spouse_biz2_income)},1.00,{mtiid},")
 
-        # Type 8: Other income - debtor sources first
+        # Standard income sources (Pension, Rental, Alimony, Unemployment, SS)
+        # for both debtor (DorS=1) and spouse (DorS=2)
         mtiid = 369039
+        std_sources = [
+            ("5", "Retirement or Pension", cfg["pension_col"], "Your spouse's average monthly income from Retirement or Pension"),
+            ("3", "Rental Property", cfg["rental_col"], "Your spouse's average monthly income from Rental Property"),
+            ("61", "Alimony or Child Support", cfg["alimony_col"], "Your spouse's average monthly income from Alimony or Child Support"),
+            ("s", "Unemployment Compensation", cfg["unemployment_col"], "Your spouse's average monthly income from Unemployment Compensation"),
+            ("s", "Social Security", cfg["social_security_col"], "Your spouse's average monthly income from Social Security"),
+        ]
+        for type_code, desc, d_col, s_col in std_sources:
+            d_val = _get(row, resolver, d_col)
+            if d_val:
+                mtiid += 1
+                has_exp = "1" if desc == "Rental Property" else "0"
+                lines.append(f"{type_code},1,{thru_date},2,{has_exp},{desc},0,0,0,0,0,0,0,0,0,0,0,0,{format_amount(d_val)},0.00,{mtiid},")
+            s_val = _get(row, resolver, s_col)
+            if s_val:
+                mtiid += 1
+                has_exp = "1" if desc == "Rental Property" else "0"
+                lines.append(f"{type_code},2,{thru_date},2,{has_exp},{desc},0,0,0,0,0,0,0,0,0,0,0,0,{format_amount(s_val)},0.00,{mtiid},")
+
+        # Type 8: VA Benefits and "other sources" entries
         va = _get(row, resolver, cfg["va_benefits_col"])
         other1 = parse_other_income(_get(row, resolver, cfg["other1_col"]))
 
