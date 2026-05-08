@@ -258,6 +258,13 @@ def build_debtor_section(row, mapping, resolver):
             addr_val = lines[addr_idx].split("=", 1)[1]
             lines[addr_idx] = f"Addr={addr_val} {city_val[match.start():]}"
             lines[city_idx] = f"City={city_val[:match.start()]}"
+    # NOTE: "Debtor rents principal residence" (Voluntary Petition / Info 2 / CCR)
+    # cannot be set via BCI. The checkbox stores DBX:RENTSHOME (Debtor Extension
+    # table), but BCI's [Case] and [Debtor] sections only map to the DBT table.
+    # Tested 9 field-name candidates 2026-05-09 — all rejected with
+    # "Unknown Field: dbt:..." Same dead end as credit-counseling fields.
+    # If GF field 118 "Real Estate" = "Rent", this checkbox must be ticked
+    # manually in BestCase after import.
     return lines
 
 
@@ -568,18 +575,41 @@ def build_schab_section(row, mapping, resolver):
     # Create Type 19 entries for each business the debtor/spouse owns
     biz_name_cols = [
         ("What's the name of your business?", "What's the nature of your business?",
-         "Business Assets", "Business Debts & Liabilities", "Business Current Value"),
+         "Business Assets", "Business Assets Value",
+         "Business Debts & Liabilities", "Business Current Value"),
     ]
-    for name_col, nature_col, assets_col, liabilities_col, value_col in biz_name_cols:
+    for name_col, nature_col, assets_col, assets_value_col, liabilities_col, value_col in biz_name_cols:
         biz_name = _get(row, resolver, name_col)
         if not biz_name:
             continue
         biz_nature = _get(row, resolver, nature_col, "")
         biz_assets = _get(row, resolver, assets_col, "")
+        biz_assets_value = _get(row, resolver, assets_value_col, "")
         biz_liabilities = _get(row, resolver, liabilities_col, "")
         biz_value = _get(row, resolver, value_col, "")
         plid = _next_link_id()
-        desc = f"Business Interest: {biz_name}"
+        # BestCase renders " | " inside Description as a line break in the UI,
+        # but embedded newlines break the BCI parser entirely. So use " | "
+        # for every line break — including between individual asset items —
+        # to match the multi-line layout seen in manually-edited BCB exports.
+        desc_parts = [f"Business Interest: {biz_name}"]
+        if biz_assets:
+            desc_parts.append("Business Assets:")
+            # Split asset list on newlines and add each as its own pipe segment
+            for item in re.split(r"\r?\n", biz_assets):
+                item = item.strip()
+                if item:
+                    desc_parts.append(item)
+        if biz_assets_value:
+            desc_parts.append("Business Assets Value:")
+            desc_parts.append(biz_assets_value)
+        if biz_liabilities:
+            desc_parts.append("Business Debts & Liabilities:")
+            desc_parts.append(biz_liabilities)
+        if biz_value:
+            desc_parts.append("Business Current Value:")
+            desc_parts.append(biz_value)
+        desc = " | ".join(desc_parts)
         owner = 3 if joint else 1
         mkt_value = format_amount(biz_value) if biz_value else "1.00"
         lines.append(f"{plid},19,{owner},{mkt_value},,,{_csv_field(desc)},,,,,,,{zero_flags},,,,,,0,0,,")
@@ -856,7 +886,11 @@ def build_schab_section(row, mapping, resolver):
         val = _get(row, resolver, f"{sp_cfg['csv_col']}#2")
     if val:
         plid = _next_link_id()
-        lines.append(f"{plid},9,{hhg_owner},{sp_cfg['default_value']},,,{val},,,,,,,{zero_flags},,,,,,0,0,,")
+        # Collapse multi-line item lists to " | " — embedded newlines break
+        # the BCI parser (each line becomes a phantom Type 1 row), but " | "
+        # renders as a line break in the BestCase UI Description field.
+        val_inline = re.sub(r"\s*\r?\n\s*", " | ", val).strip(" |")
+        lines.append(f"{plid},9,{hhg_owner},{sp_cfg['default_value']},,,{_csv_field(val_inline)},,,,,,,{zero_flags},,,,,,0,0,,")
 
     # --- Firearms (Type 10) ---
     fa_cfg = cfg["firearms"]
