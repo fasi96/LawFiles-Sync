@@ -1,5 +1,5 @@
 """
-api/webhook.py — Gravity Forms webhook receiver.
+api/webhook.py — Gravity Forms webhook receiver (Flask/WSGI).
 
 Configured in WP Admin under:
   Forms -> (Bankruptcy Questionnaire) -> Settings -> Webhooks
@@ -26,28 +26,37 @@ safe.
 Auth: shared secret in X-Webhook-Secret header. Different from
 CRON_SECRET (different attack surface — webhook URL is configured
 in WP Admin, not in this codebase).
+
+WSGI/Flask is used here (not BaseHTTPRequestHandler) because Vercel's
+adapter for the http.server path mishandles certain request header
+shapes — POSTs from WordPress's wp_remote_post and python-requests
+hit a TypeError in vc__handler__python.py where a header value is
+a list, and http.client.putheader rejects lists. The Flask/WSGI
+path uses a different adapter that doesn't have this bug.
 """
 
-import json
 import os
 import sys
 import traceback
-from http.server import BaseHTTPRequestHandler
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from flask import Flask, jsonify, request  # noqa: E402
+
 from lib import log, pipeline  # noqa: E402
 
 
-def _is_authorized(headers) -> bool:
+app = Flask(__name__)
+
+
+def _is_authorized() -> bool:
     expected = os.environ.get("WEBHOOK_SECRET", "").strip()
     if not expected:
         return False
-    received = headers.get("X-Webhook-Secret", "")
-    return received == expected
+    return request.headers.get("X-Webhook-Secret", "") == expected
 
 
 def _extract_entry(payload):
@@ -61,67 +70,53 @@ def _extract_entry(payload):
     """
     if not isinstance(payload, dict):
         return None
-    if "id" in payload and (isinstance(payload.get("id"), (str, int))):
+    if "id" in payload and isinstance(payload.get("id"), (str, int)):
         return payload
     if isinstance(payload.get("entry"), dict):
         return payload["entry"]
     return None
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        if not _is_authorized(self.headers):
-            self._respond(401, {"error": "unauthorized"})
-            return
+# Vercel routes /api/webhook to this WSGI app. Depending on runtime version
+# Flask may see the full path or just "/" — match both with a catch-all.
+@app.route("/", defaults={"_path": ""}, methods=["GET", "POST"])
+@app.route("/<path:_path>", methods=["GET", "POST"])
+def webhook(_path):
+    if request.method != "POST":
+        return jsonify({"error": "method_not_allowed", "expected": "POST"}), 405
 
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length) if length else b""
-            payload = json.loads(body.decode("utf-8") or "{}")
-        except (ValueError, UnicodeDecodeError) as e:
-            log.warning("webhook.bad_body", error=str(e))
-            self._respond(400, {"error": "invalid_json", "detail": str(e)})
-            return
+    if not _is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
 
-        entry = _extract_entry(payload)
-        if entry is None:
-            log.warning("webhook.cannot_extract_entry",
-                        top_level_keys=list(payload.keys())[:20])
-            self._respond(400, {"error": "could_not_extract_entry",
-                                "hint": "expected entry id at top level or under 'entry'"})
-            return
+    payload = request.get_json(silent=True)
+    if payload is None:
+        log.warning("webhook.bad_body",
+                    content_type=request.headers.get("Content-Type", ""))
+        return jsonify({"error": "invalid_json"}), 400
 
-        entry_id = entry.get("id")
-        log.info("webhook.start", entry_id=entry_id)
+    entry = _extract_entry(payload)
+    if entry is None:
+        keys = list(payload.keys())[:20] if isinstance(payload, dict) else None
+        log.warning("webhook.cannot_extract_entry", top_level_keys=keys)
+        return jsonify({"error": "could_not_extract_entry",
+                        "hint": "expected entry id at top level or under 'entry'"}), 400
 
-        try:
-            result = pipeline.process_webhook_entry(entry)
-            log.info("webhook.done",
-                     entry_id=entry_id,
-                     status=result.get("status"),
-                     uploaded=result.get("uploaded"),
-                     filename=result.get("filename"))
-            self._respond(200, result)
-        except Exception as e:
-            log.error("webhook.failed",
-                      entry_id=entry_id,
-                      error=str(e),
-                      type=type(e).__name__,
-                      traceback=traceback.format_exc())
-            # 500 -> GF Webhooks Add-On will retry with backoff
-            self._respond(500, {"error": str(e), "type": type(e).__name__})
+    entry_id = entry.get("id")
+    log.info("webhook.start", entry_id=entry_id)
 
-    def do_GET(self):
-        # Webhook is POST only. Use /api/run for manual GET-based testing.
-        self._respond(405, {"error": "method_not_allowed", "expected": "POST"})
-
-    def _respond(self, status: int, body: dict):
-        payload = json.dumps(body, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def log_message(self, fmt, *args):
-        pass
+    try:
+        result = pipeline.process_webhook_entry(entry)
+        log.info("webhook.done",
+                 entry_id=entry_id,
+                 status=result.get("status"),
+                 uploaded=result.get("uploaded"),
+                 filename=result.get("filename"))
+        return jsonify(result), 200
+    except Exception as e:
+        log.error("webhook.failed",
+                  entry_id=entry_id,
+                  error=str(e),
+                  type=type(e).__name__,
+                  traceback=traceback.format_exc())
+        # 500 -> GF Webhooks Add-On retries with backoff
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
